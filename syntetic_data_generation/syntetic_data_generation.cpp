@@ -1,4 +1,4 @@
-#define GTEST_BREAK_ON_FAILURE 1
+п»ї#define GTEST_BREAK_ON_FAILURE 1
 #define GTEST_CATCH_EXCEPTIONS 0
 #define GTEST_HAS_SEH 0
 #define _VARIADIC_MAX 10 /* for gtest */
@@ -13,15 +13,15 @@ using namespace pde_solvers;
 #include <time.h>
 #include <algorithm>
 
-/// @brief Возвращает тестовую строку в формате TestBundle.TestName
+/// @brief Р’РѕР·РІСЂР°С‰Р°РµС‚ С‚РµСЃС‚РѕРІСѓСЋ СЃС‚СЂРѕРєСѓ РІ С„РѕСЂРјР°С‚Рµ TestBundle.TestName
 inline std::string get_test_string() {
     auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
     auto test_string = std::string(test_info->test_case_name()) + "." + std::string(test_info->name());
     return test_string;
 }
 
-/// @brief Создает путь для теста в папке 
-/// Возвращает путь к созданной папке
+/// @brief РЎРѕР·РґР°РµС‚ РїСѓС‚СЊ РґР»СЏ С‚РµСЃС‚Р° РІ РїР°РїРєРµ 
+/// Р’РѕР·РІСЂР°С‰Р°РµС‚ РїСѓС‚СЊ Рє СЃРѕР·РґР°РЅРЅРѕР№ РїР°РїРєРµ
 inline std::string prepare_test_folder()
 {
     std::string path = std::string("../testing_out/") + get_test_string() + "/";

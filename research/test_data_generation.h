@@ -1,4 +1,4 @@
-#include <iostream>
+п»ї#include <iostream>
 #include <vector>
 #include <string>
 #include <random>
@@ -6,7 +6,7 @@
 #include <algorithm>
 
 using namespace std;
-// Типы синонимов для улучшения читаемости кода
+// РўРёРїС‹ СЃРёРЅРѕРЅРёРјРѕРІ РґР»СЏ СѓР»СѓС‡С€РµРЅРёСЏ С‡РёС‚Р°РµРјРѕСЃС‚Рё РєРѕРґР°
 using TimeVector = vector<time_t>;
 using ParamVector = vector<double>;
 using ParamPair = pair<TimeVector, ParamVector>;
@@ -19,25 +19,25 @@ public:
     void createDataRows(double duration) {
         data.clear();
 
-        // Генерация случайных чисел
+        // Р“РµРЅРµСЂР°С†РёСЏ СЃР»СѓС‡Р°Р№РЅС‹С… С‡РёСЃРµР»
 
-        uniform_real_distribution<double> timeDis(200, 400); // Для времени
+        uniform_real_distribution<double> timeDis(200, 400); // Р”Р»СЏ РІСЂРµРјРµРЅРё
 
-        // Генерация данных для каждого параметра
+        // Р“РµРЅРµСЂР°С†РёСЏ РґР°РЅРЅС‹С… РґР»СЏ РєР°Р¶РґРѕРіРѕ РїР°СЂР°РјРµС‚СЂР°
         for (const auto& param : parameters) {
             TimeVector timeValues;
             ParamVector paramValues;
 
-            uniform_real_distribution<double> normalDis(param.second * 0.9998, param.second * 1.0002); // Для значений
+            uniform_real_distribution<double> normalDis(param.second * 0.9998, param.second * 1.0002); // Р”Р»СЏ Р·РЅР°С‡РµРЅРёР№
 
-            // Генерация времени с постоянным шагом
+            // Р“РµРЅРµСЂР°С†РёСЏ РІСЂРµРјРµРЅРё СЃ РїРѕСЃС‚РѕСЏРЅРЅС‹Рј С€Р°РіРѕРј
             double timeStep = timeDis(gen);
             for (double time = std::time(nullptr); time <= std::time(nullptr) + duration; time += timeStep) {
                 timeValues.push_back(static_cast<time_t>(time));
-                timeStep = timeDis(gen); // Переменный шаг
+                timeStep = timeDis(gen); // РџРµСЂРµРјРµРЅРЅС‹Р№ С€Р°Рі
             }
 
-            // Генерация значений с разбросом
+            // Р“РµРЅРµСЂР°С†РёСЏ Р·РЅР°С‡РµРЅРёР№ СЃ СЂР°Р·Р±СЂРѕСЃРѕРј
             transform(timeValues.begin(), timeValues.end(), back_inserter(paramValues),
                 [&](time_t) { return normalDis(gen); });
 
@@ -51,8 +51,8 @@ public:
             if (parameters[i].first == paramName) {
                 auto it = lower_bound(data[i].first.begin(), data[i].first.end(), time(nullptr) + jumpTime);
                 size_t position = distance(data[i].first.begin(), it);
-                // Генерация значений с разбросом
-                uniform_real_distribution<double> normalDis(jumpValue * 0.9998, jumpValue * 1.0002); // Для значений
+                // Р“РµРЅРµСЂР°С†РёСЏ Р·РЅР°С‡РµРЅРёР№ СЃ СЂР°Р·Р±СЂРѕСЃРѕРј
+                uniform_real_distribution<double> normalDis(jumpValue * 0.9998, jumpValue * 1.0002); // Р”Р»СЏ Р·РЅР°С‡РµРЅРёР№
                 for (size_t j = position; j < data[i].first.size(); ++j) {
                     double value = normalDis(gen);
                     data[i].second[j] = value;
