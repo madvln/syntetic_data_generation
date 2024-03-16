@@ -5,6 +5,8 @@
 #include "gtest/gtest.h"
 #include <fixed/fixed.h>
 #include <pde_solvers/pde_solvers.h>
+//#include <pde_solvers/timeseries.h>
+
 using namespace pde_solvers;
 
 #include <iostream>
@@ -12,6 +14,7 @@ using namespace pde_solvers;
 #include <filesystem>
 #include <time.h>
 #include <algorithm>
+
 
 /// @brief Возвращает тестовую строку в формате TestBundle.TestName
 inline std::string get_test_string() {
@@ -30,7 +33,6 @@ inline std::string prepare_test_folder()
 }
 
 #include "../research/test_data_generation.h"
-
 
 
 int main(int argc, char** argv) {
