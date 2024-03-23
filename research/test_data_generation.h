@@ -110,7 +110,7 @@ TEST(Random, PrepareTimeSeries)
     vector_timeseries_t params(data);
 
     // Задаём интересующий нас момент времени
-    time_t test_time = StringToUnix("25.03.2024 08:53:50");
+    time_t test_time = static_cast<time_t>(std::time(nullptr) + 200000);
 
     // Интерополируем значения параметров в заданный момент времени
     vector<double> values_in_test_time = params(test_time);
