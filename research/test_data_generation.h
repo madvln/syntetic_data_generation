@@ -297,6 +297,9 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
 
     double t = std::time(nullptr);
 
+    vector<double> initial_p_profile;
+    vector<double> diff_p_profile = vector<double>(pipe.profile.getPointCount(), 0);
+
     do
     {
         vector<double> p_profile(pipe.profile.getPointCount());
@@ -310,8 +313,9 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
         int euler_direction = +1;
         if (t == std::time(nullptr))
         {
-            //pipe_model_PQ_cell_parties_t pipeModel(pipe, density_wrapper.previous().vars, viscosity_wrapper.previous().vars, Q_profile.begin(), euler_direction);
-            //solve_euler<1>(pipeModel, euler_direction, p_0, &p_profile);
+            pipe_model_PQ_cell_parties_t pipeModel(pipe, density_wrapper.previous().vars, viscosity_wrapper.previous().vars, Q_profile[0], euler_direction);
+            solve_euler<1>(pipeModel, euler_direction, p_0, &p_profile);
+            initial_p_profile = p_profile;
         }
         t += dt;
         // Задаём интересующий нас момент времени
@@ -329,6 +333,12 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
         quickest_ultimate_fv_solver solver_nu(*advection_model, viscosity_wrapper);
         solver_nu.step(dt, values_in_time_model[1], values_in_time_model[1]);
         auto nu_profile = viscosity_wrapper.current().vars;
+        
+        pipe_model_PQ_cell_parties_t pipeModel(pipe, rho_profile, nu_profile, Q_profile[0], euler_direction);
 
+        solve_euler<1>(pipeModel, euler_direction, values_in_time_model[2], &p_profile);
+
+        std::transform(initial_p_profile.begin(), initial_p_profile.end(), p_profile.begin(), diff_p_profile.begin(),
+            [](double initial, double current) {return initial - current;  });
     } while (t < std::time(nullptr) + duration - dt);
 }
