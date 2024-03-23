@@ -5,15 +5,26 @@
 #include <ctime>
 #include <algorithm>
 
-using namespace std;//убрать потом, везде std::
+using std::vector;
+using std::pair;
+using std::string;
+using std::time_t;
+using std::transform;
+using std::uniform_real_distribution;
+using std::mt19937;
+using std::random_device;
+using std::back_inserter;
+using std::lower_bound;
+using std::distance;
+
 // Типы синонимов для улучшения читаемости кода
 using TimeVector = vector<time_t>;
 using ParamVector = vector<double>;
 using ParamPair = pair<TimeVector, ParamVector>;
 //SynteticTimeSeriesGenerator
-class SyntheticDataGenerator {
+class SynteticTimeSeriesGenerator {
 public:
-    SyntheticDataGenerator(const vector<pair<string, double>>& params, double default_duration = 350000,
+    SynteticTimeSeriesGenerator(const vector<pair<string, double>>& params, double default_duration = 350000,
         pair<double, double> timeDist = { 200, 400 },
         pair<double, double> valueDist = { 0.9998, 1.0002 })
         : parameters(params), Duration(default_duration), timeDistribution(timeDist), valueDistribution(valueDist), gen(rd()) {
@@ -75,9 +86,7 @@ TEST(Random, PrepareTimeSeries)
         { "Q", 0.2 },
     };
 
-    const double duration = 350000;
-
-    SyntheticDataGenerator dataGenerator(parameters);
+    SynteticTimeSeriesGenerator dataGenerator(parameters);
     
 
     const double jumpTime = 100000;
@@ -86,6 +95,13 @@ TEST(Random, PrepareTimeSeries)
 
     const auto data = dataGenerator.getData();
 
+    vector_timeseries_t params(data);
+
+    // Задаём интересующий нас момент времени
+    time_t test_time = StringToUnix("24.03.2024 08:53:50");
+
+    // Интерополируем значения параметров в заданный момент времени
+    vector<double> values_in_test_time = params(test_time);
 }
 
 #pragma once
@@ -222,7 +238,7 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
 
     const double duration = 350000;
 
-    SyntheticDataGenerator dataGenerator(parameters);
+    SynteticTimeSeriesGenerator dataGenerator(parameters);
 
     const auto data = dataGenerator.getData();
 
