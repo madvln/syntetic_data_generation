@@ -5,7 +5,7 @@
 #include "gtest/gtest.h"
 #include <fixed/fixed.h>
 #include <pde_solvers/pde_solvers.h>
-//#include <pde_solvers/timeseries.h>
+#include <pde_solvers/timeseries.h>
 
 using namespace pde_solvers;
 

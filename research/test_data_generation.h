@@ -5,39 +5,32 @@
 #include <ctime>
 #include <algorithm>
 
-using namespace std;
+using namespace std;//убрать потом, везде std::
 // Типы синонимов для улучшения читаемости кода
 using TimeVector = vector<time_t>;
 using ParamVector = vector<double>;
 using ParamPair = pair<TimeVector, ParamVector>;
-
+//SynteticTimeSeriesGenerator
 class SyntheticDataGenerator {
 public:
-    SyntheticDataGenerator(const vector<pair<string, double>>& params)
-        : parameters(params) {}
+    SyntheticDataGenerator(const vector<pair<string, double>>& params, double default_duration = 350000,
+        pair<double, double> timeDist = { 200, 400 },
+        pair<double, double> valueDist = { 0.9998, 1.0002 })
+        : parameters(params), Duration(default_duration), timeDistribution(timeDist), valueDistribution(valueDist), gen(rd()) {
+        uniform_real_distribution<double> timeDis(timeDistribution.first, timeDistribution.second);
 
-    void createDataRows(double duration) {
-        data.clear();
-
-        // Генерация случайных чисел
-
-        uniform_real_distribution<double> timeDis(200, 400); // Для времени
-
-        // Генерация данных для каждого параметра
         for (const auto& param : parameters) {
             TimeVector timeValues;
             ParamVector paramValues;
 
-            uniform_real_distribution<double> normalDis(param.second * 0.9998, param.second * 1.0002); // Для значений
+            uniform_real_distribution<double> normalDis(param.second * valueDistribution.first, param.second * valueDistribution.second);
 
-            // Генерация времени с постоянным шагом
             double timeStep = timeDis(gen);
-            for (double time = std::time(nullptr); time <= std::time(nullptr) + duration; time += timeStep) {
+            for (double time = std::time(nullptr); time <= std::time(nullptr) + Duration; time += timeStep) {
                 timeValues.push_back(static_cast<time_t>(time));
-                timeStep = timeDis(gen); // Переменный шаг
+                timeStep = timeDis(gen);
             }
 
-            // Генерация значений с разбросом
             transform(timeValues.begin(), timeValues.end(), back_inserter(paramValues),
                 [&](time_t) { return normalDis(gen); });
 
@@ -46,13 +39,11 @@ public:
     }
 
     void applyJump(double jumpTime, double jumpValue, const string& paramName) {
-
         for (size_t i = 0; i < parameters.size(); ++i) {
             if (parameters[i].first == paramName) {
                 auto it = lower_bound(data[i].first.begin(), data[i].first.end(), time(nullptr) + jumpTime);
                 size_t position = distance(data[i].first.begin(), it);
-                // Генерация значений с разбросом
-                uniform_real_distribution<double> normalDis(jumpValue * 0.9998, jumpValue * 1.0002); // Для значений
+                uniform_real_distribution<double> normalDis(jumpValue * valueDistribution.first, jumpValue * valueDistribution.second);
                 for (size_t j = position; j < data[i].first.size(); ++j) {
                     double value = normalDis(gen);
                     data[i].second[j] = value;
@@ -70,6 +61,9 @@ private:
     vector<ParamPair> data;
     random_device rd;
     mt19937 gen;
+    pair<double, double> timeDistribution;
+    pair<double, double> valueDistribution;
+    double Duration;
 };
 
 TEST(Random, PrepareTimeSeries)
@@ -84,7 +78,7 @@ TEST(Random, PrepareTimeSeries)
     const double duration = 350000;
 
     SyntheticDataGenerator dataGenerator(parameters);
-    dataGenerator.createDataRows(duration);
+    
 
     const double jumpTime = 100000;
     const double jumpValue = 870;
@@ -229,7 +223,6 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
     const double duration = 350000;
 
     SyntheticDataGenerator dataGenerator(parameters);
-    dataGenerator.createDataRows(duration);
 
     const auto data = dataGenerator.getData();
 
