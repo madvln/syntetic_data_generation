@@ -238,7 +238,7 @@ public:
 
 TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
 {
-    // для генерации временных рядов
+    // Для генерации временных рядов
     const vector<pair<string, double>> parameters = {
         { "rho_in", 860 },
         { "visc_in", 15e-6},
@@ -246,12 +246,12 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
         { "Q", 0.2 },
     };
 
-    const double duration = 300000;// задаю время моделирования (опционально, по умолчанию 350000)
+    const double duration = 300000;// Задаю время моделирования (опционально, по умолчанию 350000)
     
-    SynteticTimeSeriesGenerator dataTimeSeries(parameters, duration); // генерируем данные
+    SynteticTimeSeriesGenerator dataTimeSeries(parameters, duration); // Генерируем данные
 
-    const double jumpTime_Q = 50000; // момент скачка по расходу
-    const double jumpValue_Q = 0.1; // значение расхода в момент скачка
+    const double jumpTime_Q = 50000; // Момент скачка по расходу
+    const double jumpValue_Q = 0.1; // Значение расхода в момент скачка
     dataTimeSeries.applyJump(jumpTime_Q, jumpValue_Q, "Q");
     
     // Получаем данные
@@ -260,21 +260,21 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
     vector_timeseries_t params(data);
 
     const auto& x = advection_model->get_grid();
-    double dx = x[1] - x[0]; // шаг сетки
+    double dx = x[1] - x[0]; // Шаг сетки
 
     ring_buffer_t<density_viscosity_cell_layer> buffer(2, pipe.profile.getPointCount());
 
     auto& rho_initial = buffer[0].density;
     auto& viscosity_initial = buffer[0].viscosity;
-    rho_initial = vector<double>(rho_initial.size(), 850); // инициализация начальной плотности
-    viscosity_initial = vector<double>(viscosity_initial.size(), 1e-5); // инициализация начальной плотности
-    double p_initial = 6e6;
+    rho_initial = vector<double>(rho_initial.size(), 850); // Инициализация начальной плотности
+    viscosity_initial = vector<double>(viscosity_initial.size(), 1e-5); // Инициализация начальной вязкости
+    double p_initial = 6e6; // Давление на входе изначальное
     buffer.advance(+1);
 
-    double v_max = 1; // предполагаем скорость для Куранта = 1, скорость, больше чем во временных рядах и в профиле
-    double dt = abs(dx/v_max);
+    double v_max = 1; // Предполагаем скорость для Куранта = 1, скорость, больше чем во временных рядах и в профиле
+    double dt = abs(dx/v_max); // Постоянный шаг по времени для Куранта = 1
 
-    double t = std::time(nullptr);
+    double t = std::time(nullptr); // Время на данный момент
 
     vector<double> initial_p_profile;
     vector<double> diff_p_profile = vector<double>(pipe.profile.getPointCount(), 0);
@@ -290,15 +290,12 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
             &density_viscosity_cell_layer::get_viscosity_quick_wrapper);
 
         int euler_direction = +1;
-
+        
         if (t == std::time(nullptr))
         {
             pipe_model_PQ_cell_parties_t pipeModel(pipe, density_wrapper.previous().vars, viscosity_wrapper.previous().vars, Q_profile[0], euler_direction);
             solve_euler<1>(pipeModel, euler_direction, p_initial, &p_profile);
-            initial_p_profile = p_profile;
-
-            //double Cr = calc_speed(Q_profile[0], pipe.wall.diameter) * dt / dx;
-            double debug = 0;
+            initial_p_profile = p_profile;// получаем изначальный профиль
         }
         t += dt;
         
@@ -307,7 +304,7 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
         // Интерополируем значения параметров в заданный момент времени
         vector<double> values_in_time_model = params(time_model);
 
-        Q_profile = vector<double>(pipe.profile.getPointCount(), values_in_time_model[3]); // задаем по трубе расход 0.2 м3/с
+        Q_profile = vector<double>(pipe.profile.getPointCount(), values_in_time_model[3]); // задаем по трубе новый расход из временного ряда
         advection_model = std::make_unique<PipeQAdvection>(pipe, Q_profile);
 
         quickest_ultimate_fv_solver solver_rho(*advection_model, density_wrapper);
@@ -324,9 +321,7 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
 
         std::transform(initial_p_profile.begin(), initial_p_profile.end(), p_profile.begin(), diff_p_profile.begin(),
             [](double initial, double current) {return initial - current;  });
-        //double Cr = calc_speed(Q_profile[0], pipe.wall.diameter) * dt / dx;
-        if (t > std::time(nullptr) + duration - 10000)
-            double debug = 0;
+
         buffer.advance(+1);
     } while (t < std::time(nullptr) + duration - dt);
 }
