@@ -9,13 +9,6 @@ using std::vector;
 using std::pair;
 using std::string;
 using std::time_t;
-using std::transform;
-using std::uniform_real_distribution;
-using std::mt19937;
-using std::random_device;
-using std::back_inserter;
-using std::lower_bound;
-using std::distance;
 
 /// @brief Функция расчета скорости из расхода
 /// @param Q Расход, (м^3/с)
@@ -38,13 +31,13 @@ public:
         pair<double, double> timeDist = { 200, 400 },
         pair<double, double> valueDist = { 0.9998, 1.0002 })
         : parameters(params), Duration(default_duration), timeDistribution(timeDist), valueDistribution(valueDist), gen(rd()) {
-        uniform_real_distribution<double> timeDis(timeDistribution.first, timeDistribution.second);
+        std::uniform_real_distribution<double> timeDis(timeDistribution.first, timeDistribution.second);
 
         for (const auto& param : parameters) {
             TimeVector timeValues;
             ParamVector paramValues;
 
-            uniform_real_distribution<double> normalDis(param.second * valueDistribution.first, param.second * valueDistribution.second);
+            std::uniform_real_distribution<double> normalDis(param.second * valueDistribution.first, param.second * valueDistribution.second);
 
             double timeStep = timeDis(gen);
             for (double time = std::time(nullptr); time <= std::time(nullptr) + Duration; time += timeStep) {
@@ -52,7 +45,7 @@ public:
                 timeStep = timeDis(gen);
             }
 
-            transform(timeValues.begin(), timeValues.end(), back_inserter(paramValues),
+            std::transform(timeValues.begin(), timeValues.end(), std::back_inserter(paramValues),
                 [&](time_t) { return normalDis(gen); });
 
             data.push_back({ timeValues, paramValues });
@@ -62,9 +55,9 @@ public:
     void applyJump(double jumpTime, double jumpValue, const string& paramName) {
         for (size_t i = 0; i < parameters.size(); ++i) {
             if (parameters[i].first == paramName) {
-                auto it = lower_bound(data[i].first.begin(), data[i].first.end(), time(nullptr) + jumpTime);
-                size_t position = distance(data[i].first.begin(), it);
-                uniform_real_distribution<double> normalDis(jumpValue * valueDistribution.first, jumpValue * valueDistribution.second);
+                auto it = std::lower_bound(data[i].first.begin(), data[i].first.end(), time(nullptr) + jumpTime);
+                size_t position = std::distance(data[i].first.begin(), it);
+                std::uniform_real_distribution<double> normalDis(jumpValue * valueDistribution.first, jumpValue * valueDistribution.second);
                 for (size_t j = position; j < data[i].first.size(); ++j) {
                     double value = normalDis(gen);
                     data[i].second[j] = value;
@@ -80,8 +73,8 @@ public:
 private:
     vector<pair<string, double>> parameters;
     vector<ParamPair> data;
-    random_device rd;
-    mt19937 gen;
+    std::random_device rd;
+    std::mt19937 gen;
     pair<double, double> timeDistribution;
     pair<double, double> valueDistribution;
     double Duration;
@@ -166,8 +159,7 @@ struct density_viscosity_cell_layer {
         : density(point_count - 1)
         , viscosity(point_count - 1)
         , specific(point_count)
-    {
-    }
+    {}
 
     // @brief Подготовка плотности для расчета методом конечных объемов 
     static quickest_ultimate_fv_wrapper<1> get_density_quick_wrapper(density_viscosity_cell_layer& layer)
@@ -226,8 +218,6 @@ public:
 
         /// Обработка индекса в случае расчетов на границах трубы
         /// Чтобы не выйти за массив высот, будем считать dz/dx в соседней точке
-        //grid_index = grid_index == 0 ? grid_index + 1 : grid_index;
-        //grid_index = grid_index == pipe.profile.heights.size() - 1 ? grid_index - 1 : grid_index;
 
         size_t reo_index = solver_direction == +1
             ? grid_index
@@ -248,7 +238,7 @@ public:
 
 TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
 {
-    double p_0 = 6e6;
+    // для генерации временных рядов
     const vector<pair<string, double>> parameters = {
         { "rho_in", 860 },
         { "visc_in", 15e-6},
@@ -256,23 +246,21 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
         { "Q", 0.2 },
     };
 
-    const double duration = 350000;
+    const double duration = 300000;// задаю время моделирования (опционально, по умолчанию 350000)
+    
+    SynteticTimeSeriesGenerator dataTimeSeries(parameters, duration); // генерируем данные
 
-    SynteticTimeSeriesGenerator dataGenerator(parameters, duration);
-
-
-
-    const double jumpTime_Q = 150000;
-    const double jumpValue_Q = 0.1;
-    dataGenerator.applyJump(jumpTime_Q, jumpValue_Q, "Q");
-
-    const auto data = dataGenerator.getData();
-
+    const double jumpTime_Q = 50000; // момент скачка по расходу
+    const double jumpValue_Q = 0.1; // значение расхода в момент скачка
+    dataTimeSeries.applyJump(jumpTime_Q, jumpValue_Q, "Q");
+    
+    // Получаем данные
+    const auto data = dataTimeSeries.getData(); 
+    // Помещаем временные ряды в вектор
     vector_timeseries_t params(data);
 
     const auto& x = advection_model->get_grid();
-    double dx = x[1] - x[0];
-    double v = advection_model->getEquationsCoeffs(0, 0);
+    double dx = x[1] - x[0]; // шаг сетки
 
     ring_buffer_t<density_viscosity_cell_layer> buffer(2, pipe.profile.getPointCount());
 
@@ -280,17 +268,8 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
     auto& viscosity_initial = buffer[0].viscosity;
     rho_initial = vector<double>(rho_initial.size(), 850); // инициализация начальной плотности
     viscosity_initial = vector<double>(viscosity_initial.size(), 1e-5); // инициализация начальной плотности
-
+    double p_initial = 6e6;
     buffer.advance(+1);
-    
-    /*
-    // ищем максимальную скорость в профиле расхода
-    double v_max_start = calc_speed(*std::max_element(Q_profile.begin(), Q_profile.end()), pipe.wall.diameter);
-    //ищем максимальную скорость в временном ряде расхода
-    double v_max_end = calc_speed(*std::max_element(data[3].second.begin(), data[3].second.end()), pipe.wall.diameter);
-    // ищем максимальную скорость
-    double v_max = std::max(v_max_start, v_max_end);
-    */
 
     double v_max = 1; // предполагаем скорость для Куранта = 1, скорость, больше чем во временных рядах и в профиле
     double dt = abs(dx/v_max);
@@ -304,20 +283,25 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
     {
         vector<double> p_profile(pipe.profile.getPointCount());
 
-
-
         auto density_wrapper = buffer.get_buffer_wrapper(
             &density_viscosity_cell_layer::get_density_quick_wrapper);
+
         auto viscosity_wrapper = buffer.get_buffer_wrapper(
             &density_viscosity_cell_layer::get_viscosity_quick_wrapper);
+
         int euler_direction = +1;
+
         if (t == std::time(nullptr))
         {
             pipe_model_PQ_cell_parties_t pipeModel(pipe, density_wrapper.previous().vars, viscosity_wrapper.previous().vars, Q_profile[0], euler_direction);
-            solve_euler<1>(pipeModel, euler_direction, p_0, &p_profile);
+            solve_euler<1>(pipeModel, euler_direction, p_initial, &p_profile);
             initial_p_profile = p_profile;
+
+            //double Cr = calc_speed(Q_profile[0], pipe.wall.diameter) * dt / dx;
+            double debug = 0;
         }
         t += dt;
+        
         // Задаём интересующий нас момент времени
         time_t time_model = static_cast<time_t>(t);
         // Интерополируем значения параметров в заданный момент времени
@@ -340,5 +324,9 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
 
         std::transform(initial_p_profile.begin(), initial_p_profile.end(), p_profile.begin(), diff_p_profile.begin(),
             [](double initial, double current) {return initial - current;  });
+        //double Cr = calc_speed(Q_profile[0], pipe.wall.diameter) * dt / dx;
+        if (t > std::time(nullptr) + duration - 10000)
+            double debug = 0;
+        buffer.advance(+1);
     } while (t < std::time(nullptr) + duration - dt);
 }
