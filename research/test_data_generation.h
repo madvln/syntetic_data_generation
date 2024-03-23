@@ -17,11 +17,21 @@ using std::back_inserter;
 using std::lower_bound;
 using std::distance;
 
+/// @brief Функция расчета скорости из расхода
+/// @param Q Расход, (м^3/с)
+/// @param internal_diameter Внутренний диаметр, (м)
+/// @return Скорость, (м/с)
+double calc_speed(double Q, double internal_diameter)
+{
+    double speed = (4 * Q) / (pow(internal_diameter, 2) * M_PI);
+    return speed;
+}
+
 // Типы синонимов для улучшения читаемости кода
 using TimeVector = vector<time_t>;
 using ParamVector = vector<double>;
 using ParamPair = pair<TimeVector, ParamVector>;
-//SynteticTimeSeriesGenerator
+
 class SynteticTimeSeriesGenerator {
 public:
     SynteticTimeSeriesGenerator(const vector<pair<string, double>>& params, double default_duration = 350000,
@@ -86,19 +96,28 @@ TEST(Random, PrepareTimeSeries)
         { "Q", 0.2 },
     };
 
-    SynteticTimeSeriesGenerator dataGenerator(parameters);
-    
+    const double duration = 350000;
 
-    const double jumpTime = 100000;
-    const double jumpValue = 870;
-    dataGenerator.applyJump(jumpTime, jumpValue, "rho_in");
+    // Задаём настроечные параметры
+    pair<double, double> timeDistribution = { 200, 400 };//Размах во времени, от 200 с до 400 с
+    pair<double, double> valueDistribution = { 0.9998, 1.0002 };//Процентное отклонение, имитация шума у датчиков
+    
+    SynteticTimeSeriesGenerator dataGenerator(parameters, duration, timeDistribution, valueDistribution);
+
+    const double jumpTime_rho = 100000;
+    const double jumpValue_rho = 870;
+    dataGenerator.applyJump(jumpTime_rho, jumpValue_rho, "rho_in");
+
+    const double jumpTime_Q = 150000;
+    const double jumpValue_Q = 0.1;
+    dataGenerator.applyJump(jumpTime_Q, jumpValue_Q, "Q");
 
     const auto data = dataGenerator.getData();
 
     vector_timeseries_t params(data);
 
     // Задаём интересующий нас момент времени
-    time_t test_time = StringToUnix("24.03.2024 08:53:50");
+    time_t test_time = StringToUnix("25.03.2024 08:53:50");
 
     // Интерополируем значения параметров в заданный момент времени
     vector<double> values_in_test_time = params(test_time);
@@ -229,6 +248,7 @@ public:
 
 TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
 {
+    double p_0 = 6e6;
     const vector<pair<string, double>> parameters = {
         { "rho_in", 860 },
         { "visc_in", 15e-6},
@@ -238,11 +258,17 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
 
     const double duration = 350000;
 
-    SynteticTimeSeriesGenerator dataGenerator(parameters);
+    SynteticTimeSeriesGenerator dataGenerator(parameters, duration);
+
+
+
+    const double jumpTime_Q = 150000;
+    const double jumpValue_Q = 0.1;
+    dataGenerator.applyJump(jumpTime_Q, jumpValue_Q, "Q");
 
     const auto data = dataGenerator.getData();
 
-    //vector_timeseries_t params(data);
+    vector_timeseries_t params(data);
 
     const auto& x = advection_model->get_grid();
     double dx = x[1] - x[0];
@@ -250,21 +276,59 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
 
     ring_buffer_t<density_viscosity_cell_layer> buffer(2, pipe.profile.getPointCount());
 
-
-    //double v_max = пересчитываю максимальное значение из временного ряда расхода на скорость
-    double dt = abs(dx);// double dt = abs(dx/v_max);
-
     auto& rho_initial = buffer[0].density;
     auto& viscosity_initial = buffer[0].viscosity;
     rho_initial = vector<double>(rho_initial.size(), 850); // инициализация начальной плотности
     viscosity_initial = vector<double>(viscosity_initial.size(), 1e-5); // инициализация начальной плотности
 
     buffer.advance(+1);
+    
+    /*
+    // ищем максимальную скорость в профиле расхода
+    double v_max_start = calc_speed(*std::max_element(Q_profile.begin(), Q_profile.end()), pipe.wall.diameter);
+    //ищем максимальную скорость в временном ряде расхода
+    double v_max_end = calc_speed(*std::max_element(data[3].second.begin(), data[3].second.end()), pipe.wall.diameter);
+    // ищем максимальную скорость
+    double v_max = std::max(v_max_start, v_max_end);
+    */
+
+    double v_max = 1; // предполагаем скорость для Куранта = 1, скорость, больше чем во временных рядах и в профиле
+    double dt = abs(dx/v_max);
 
     double t = std::time(nullptr);
 
     do
     {
+        vector<double> p_profile(pipe.profile.getPointCount());
 
-    } while (t < t + duration - dt);
+
+
+        auto density_wrapper = buffer.get_buffer_wrapper(
+            &density_viscosity_cell_layer::get_density_quick_wrapper);
+        auto viscosity_wrapper = buffer.get_buffer_wrapper(
+            &density_viscosity_cell_layer::get_viscosity_quick_wrapper);
+        int euler_direction = +1;
+        if (t == std::time(nullptr))
+        {
+            //pipe_model_PQ_cell_parties_t pipeModel(pipe, density_wrapper.previous().vars, viscosity_wrapper.previous().vars, Q_profile.begin(), euler_direction);
+            //solve_euler<1>(pipeModel, euler_direction, p_0, &p_profile);
+        }
+        t += dt;
+        // Задаём интересующий нас момент времени
+        time_t time_model = static_cast<time_t>(t);
+        // Интерополируем значения параметров в заданный момент времени
+        vector<double> values_in_time_model = params(time_model);
+
+        Q_profile = vector<double>(pipe.profile.getPointCount(), values_in_time_model[3]); // задаем по трубе расход 0.2 м3/с
+        advection_model = std::make_unique<PipeQAdvection>(pipe, Q_profile);
+
+        quickest_ultimate_fv_solver solver_rho(*advection_model, density_wrapper);
+        solver_rho.step(dt, values_in_time_model[0], values_in_time_model[0]);
+        auto rho_profile = density_wrapper.current().vars;
+
+        quickest_ultimate_fv_solver solver_nu(*advection_model, viscosity_wrapper);
+        solver_nu.step(dt, values_in_time_model[1], values_in_time_model[1]);
+        auto nu_profile = viscosity_wrapper.current().vars;
+
+    } while (t < std::time(nullptr) + duration - dt);
 }
