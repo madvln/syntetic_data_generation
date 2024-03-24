@@ -25,12 +25,28 @@ using TimeVector = vector<time_t>;
 using ParamVector = vector<double>;
 using ParamPair = pair<TimeVector, ParamVector>;
 
+
+struct timeseries_generator_settings {
+    std::time_t duration{ 350000 };
+    std::time_t sample_time_min{200};
+    std::time_t sample_time_max{400};
+    double value_relative_increment{ 0.0002 };
+    double value_relative_decrement{ 0.0002 };
+    vector<pair<string, double>> timeseries_initial_values;
+};
+
+/// @brief сделать snake case
 class SynteticTimeSeriesGenerator {
 public:
     SynteticTimeSeriesGenerator(const vector<pair<string, double>>& params, double default_duration = 350000,
         pair<double, double> timeDist = { 200, 400 },
         pair<double, double> valueDist = { 0.9998, 1.0002 })
-        : parameters(params), Duration(default_duration), timeDistribution(timeDist), valueDistribution(valueDist), gen(rd()) {
+        : parameters(params)
+        , Duration(default_duration)
+        , timeDistribution(timeDist)
+        , valueDistribution(valueDist)
+        , gen(rd()) 
+    {
         std::uniform_real_distribution<double> timeDis(timeDistribution.first, timeDistribution.second);
 
         for (const auto& param : parameters) {
