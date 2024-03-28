@@ -25,23 +25,46 @@ using TimeVector = vector<time_t>;
 using ParamVector = vector<double>;
 using ParamPair = pair<TimeVector, ParamVector>;
 
-class SynteticTimeSeriesGenerator {
-public:
-    SynteticTimeSeriesGenerator(const vector<pair<string, double>>& params, double default_duration = 350000,
-        pair<double, double> timeDist = { 200, 400 },
-        pair<double, double> valueDist = { 0.9998, 1.0002 })
-        : parameters(params), Duration(default_duration), timeDistribution(timeDist), valueDistribution(valueDist), gen(rd()) {
-        std::uniform_real_distribution<double> timeDis(timeDistribution.first, timeDistribution.second);
+/// @brief Исходны данные и настроечные параметры
+struct timeseries_generator_settings {
+    std::time_t duration{ 300000 }; // Время моделирования, с
+    std::time_t sample_time_min{200}; // Минимальное значение размаха шага, с
+    std::time_t sample_time_max{400}; // Максимальное значение размаха шага, с
+    double value_relative_decrement{ 0.0002 }; // Относительное минимальное отклонение значения параметров, доли
+    double value_relative_increment{ 0.0002 }; // Относительное максимальное отклонение значения параметров, доли
+    /// @brief Исходные данные, обязательно должны присутствовать два опциональных параметра
+    /// @brief "rho_in" Плотность жидкости, (кг/м3)
+    /// @brief "visc_in" Кинематическая вязкость, (м2/с)
+    /// @brief "p_in" Давление на входе (опционально), (Па)
+    /// @brief "p_out" Давление на выходе (опционально), (Па)
+    /// @brief "Q" Расход по всей трубе (опционально), (м^3/с)
+    vector<pair<string, double>> timeseries_initial_values = {
+        { "rho_in", 860 },
+        { "visc_in", 15e-6},
+        { "p_in", 6e6},
+        { "Q", 0.2 },
+    };
+};
 
-        for (const auto& param : parameters) {
+/// @brief Класс для генерации синтетических временных рядов
+class syntetic_time_series_generator {
+public:
+    /// @brief Конструктор класса
+    /// @param settings Настройки генератора временных рядов
+    syntetic_time_series_generator(const timeseries_generator_settings& settings)
+        : settings_(settings),
+        gen(rd()) {
+        std::uniform_real_distribution<double> timeDis(settings_.sample_time_min, settings_.sample_time_max);
+
+        for (const auto& param : settings_.timeseries_initial_values) {
             TimeVector timeValues;
             ParamVector paramValues;
 
-            std::uniform_real_distribution<double> normalDis(param.second * valueDistribution.first, param.second * valueDistribution.second);
+            std::uniform_real_distribution<double> normalDis(param.second * (1 - settings_.value_relative_increment), param.second * (1 + settings_.value_relative_decrement));
 
-            double timeStep = timeDis(gen);
-            for (double time = std::time(nullptr); time <= std::time(nullptr) + Duration; time += timeStep) {
-                timeValues.push_back(static_cast<time_t>(time));
+            time_t timeStep = timeDis(gen);
+            for (time_t time = std::time(nullptr); time <= std::time(nullptr) + settings_.duration; time += timeStep) {
+                timeValues.push_back(time);
                 timeStep = timeDis(gen);
             }
 
@@ -51,13 +74,16 @@ public:
             data.push_back({ timeValues, paramValues });
         }
     }
-
-    void applyJump(double jumpTime, double jumpValue, const string& paramName) {
-        for (size_t i = 0; i < parameters.size(); ++i) {
-            if (parameters[i].first == paramName) {
-                auto it = std::lower_bound(data[i].first.begin(), data[i].first.end(), time(nullptr) + jumpTime);
+    /// @brief Применение скачка к временному ряду
+    /// @param jump_time Время, когда происходит скачок
+    /// @param jump_value Значение скачка
+    /// @param paramName Имя параметра, к которому применяется скачок
+    void apply_jump(time_t jump_time, double jump_value, const string& paramName) {
+        for (size_t i = 0; i < settings_.timeseries_initial_values.size(); ++i) {
+            if (settings_.timeseries_initial_values[i].first == paramName) {
+                auto it = std::lower_bound(data[i].first.begin(), data[i].first.end(), time(nullptr) + jump_time);
                 size_t position = std::distance(data[i].first.begin(), it);
-                std::uniform_real_distribution<double> normalDis(jumpValue * valueDistribution.first, jumpValue * valueDistribution.second);
+                std::uniform_real_distribution<double> normalDis(jump_value * (1 - settings_.value_relative_increment), jump_value * (1 + settings_.value_relative_increment));
                 for (size_t j = position; j < data[i].first.size(); ++j) {
                     double value = normalDis(gen);
                     data[i].second[j] = value;
@@ -65,47 +91,44 @@ public:
             }
         }
     }
-
-    vector<ParamPair> getData() const {
+    /// @brief Получение сгенерированных данных
+    /// @return Вектор временных рядов
+    vector<ParamPair> get_data() const {
         return data;
     }
 
 private:
-    vector<pair<string, double>> parameters;
-    vector<ParamPair> data;
-    std::random_device rd;
-    std::mt19937 gen;
-    pair<double, double> timeDistribution;
-    pair<double, double> valueDistribution;
-    double Duration;
+    timeseries_generator_settings settings_; // Настройки генератора
+    vector<ParamPair> data;; // Данные временных рядов
+    std::random_device rd; // Генератор случайных чисел
+    std::mt19937 gen; // Генератор псевдослучайных чисел
 };
 
 TEST(Random, PrepareTimeSeries)
 {
-    const vector<pair<string, double>> parameters = {
-        { "rho_in", 860 },
-        { "visc_in", 15e-6},
-        { "p_in", 6e6},
-        { "Q", 0.2 },
+    timeseries_generator_settings settings;
+    settings.duration = 350000; // Задаю время моделирования (опционально, по умолчанию 300000)
+    settings.sample_time_min = 300; // Задаю минимальное значение размаха шага (опционально, по умолчанию 200)
+    settings.sample_time_max = 450; // Задаю максимальное значение размаха шага (опционально, по умолчанию 400)
+    settings.value_relative_decrement = 0.005; // Задаю относительное минимальное отклонение значения параметров (опционально, по умолчанию 0.0002)
+    settings.value_relative_increment = 0.005; // Задаю относительное максимальное отклонение значения параметров (опционально, по умолчанию 0.0002)
+    settings.timeseries_initial_values = {
+        { "rho_in", 850 },
+        { "visc_in", 17e-6},
+        { "p_in", 5e6},
+        { "Q", 0.3 },
     };
+    syntetic_time_series_generator data_generator(settings);
 
-    const double duration = 350000;
+    const time_t jump_time_rho = 100000;
+    const double jump_value_rho = 870;
+    data_generator.apply_jump(jump_time_rho, jump_value_rho, "rho_in");
 
-    // Задаём настроечные параметры
-    pair<double, double> timeDistribution = { 200, 400 };//Размах во времени, от 200 с до 400 с
-    pair<double, double> valueDistribution = { 0.9998, 1.0002 };//Процентное отклонение, имитация шума у датчиков
-    
-    SynteticTimeSeriesGenerator dataGenerator(parameters, duration, timeDistribution, valueDistribution);
+    const time_t jump_time_Q = 150000;
+    const double jump_value_Q = 0.1;
+    data_generator.apply_jump(jump_time_Q, jump_value_Q, "Q");
 
-    const double jumpTime_rho = 100000;
-    const double jumpValue_rho = 870;
-    dataGenerator.applyJump(jumpTime_rho, jumpValue_rho, "rho_in");
-
-    const double jumpTime_Q = 150000;
-    const double jumpValue_Q = 0.1;
-    dataGenerator.applyJump(jumpTime_Q, jumpValue_Q, "Q");
-
-    const auto data = dataGenerator.getData();
+    const auto data = data_generator.get_data();
 
     vector_timeseries_t params(data);
 
@@ -119,7 +142,7 @@ TEST(Random, PrepareTimeSeries)
 #pragma once
 
 /// @brief Тесты для солвера quickest_ultimate_fv_solver
-class QuickWithQuasiStationaryModel : public ::testing::Test {
+class quick_with_quasi_stationary_model : public ::testing::Test {
 protected:
 
 protected:
@@ -236,26 +259,14 @@ public:
     }
 };
 
-TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
+TEST_F(quick_with_quasi_stationary_model, WorkingWithTimeSeries)
 {
-    // Для генерации временных рядов
-    const vector<pair<string, double>> parameters = {
-        { "rho_in", 860 },
-        { "visc_in", 15e-6},
-        { "p_in", 6e6},
-        { "Q", 0.2 },
-    };
-
-    const double duration = 300000;// Задаю время моделирования (опционально, по умолчанию 350000)
-    
-    SynteticTimeSeriesGenerator dataTimeSeries(parameters, duration); // Генерируем данные
-
-    const double jumpTime_Q = 50000; // Момент скачка по расходу
-    const double jumpValue_Q = 0.1; // Значение расхода в момент скачка
-    dataTimeSeries.applyJump(jumpTime_Q, jumpValue_Q, "Q");
-    
+    // Объявляем структуру с исходными данными и настроечными параметрами
+    timeseries_generator_settings settings;
+    // Генерируем данные
+    syntetic_time_series_generator data_time_series(settings); 
     // Получаем данные
-    const auto data = dataTimeSeries.getData(); 
+    const auto data = data_time_series.get_data(); 
     // Помещаем временные ряды в вектор
     vector_timeseries_t params(data);
 
@@ -264,24 +275,22 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
 
     ring_buffer_t<density_viscosity_cell_layer> buffer(2, pipe.profile.getPointCount());
 
-    auto& rho_initial = buffer[0].density;
-    auto& viscosity_initial = buffer[0].viscosity;
-    rho_initial = vector<double>(rho_initial.size(), 850); // Инициализация начальной плотности
-    viscosity_initial = vector<double>(viscosity_initial.size(), 1e-5); // Инициализация начальной вязкости
+    buffer[0].density = vector<double>(buffer[0].density.size(), 850); // Инициализация начальной плотности
+    buffer[0].viscosity = vector<double>(buffer[0].viscosity.size(), 1e-5); // Инициализация начальной вязкости
     double p_initial = 6e6; // Давление на входе изначальное
     buffer.advance(+1);
 
     double v_max = 1; // Предполагаем скорость для Куранта = 1, скорость, больше чем во временных рядах и в профиле
-    double dt = abs(dx/v_max); // Постоянный шаг по времени для Куранта = 1
+    time_t dt = abs(dx/v_max); // Постоянный шаг по времени для Куранта = 1
 
-    double t = std::time(nullptr); // Время на данный момент
+    time_t t = std::time(nullptr); // Момент времени начала моделирования
 
-    vector<double> initial_p_profile;
-    vector<double> diff_p_profile = vector<double>(pipe.profile.getPointCount(), 0);
+    vector<double> initial_p_profile; // Изначальный профиль давлений
+    vector<double> diff_p_profile = vector<double>(pipe.profile.getPointCount(), 0); // Дифференциальный профиль давлений
 
     do
     {
-        vector<double> p_profile(pipe.profile.getPointCount());
+        vector<double> p_profile(pipe.profile.getPointCount()); // Профиль давлений
 
         auto density_wrapper = buffer.get_buffer_wrapper(
             &density_viscosity_cell_layer::get_density_quick_wrapper);
@@ -289,39 +298,35 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
         auto viscosity_wrapper = buffer.get_buffer_wrapper(
             &density_viscosity_cell_layer::get_viscosity_quick_wrapper);
 
-        int euler_direction = +1;
+        int euler_direction = +1; // Задаем направление для Эйлера
         
         if (t == std::time(nullptr))
         {
             pipe_model_PQ_cell_parties_t pipeModel(pipe, density_wrapper.previous().vars, viscosity_wrapper.previous().vars, Q_profile[0], euler_direction);
             solve_euler<1>(pipeModel, euler_direction, p_initial, &p_profile);
-            initial_p_profile = p_profile;// получаем изначальный профиль
+            initial_p_profile = p_profile; // Получаем изначальный профиль давлений
         }
         t += dt;
         
-        // Задаём интересующий нас момент времени
-        time_t time_model = static_cast<time_t>(t);
         // Интерополируем значения параметров в заданный момент времени
-        vector<double> values_in_time_model = params(time_model);
+        vector<double> values_in_time_model = params(t);
 
         Q_profile = vector<double>(pipe.profile.getPointCount(), values_in_time_model[3]); // задаем по трубе новый расход из временного ряда
         advection_model = std::make_unique<PipeQAdvection>(pipe, Q_profile);
-
+        // Шаг по плотности
         quickest_ultimate_fv_solver solver_rho(*advection_model, density_wrapper);
         solver_rho.step(dt, values_in_time_model[0], values_in_time_model[0]);
-        auto rho_profile = density_wrapper.current().vars;
-
+        // Шаг по вязкости
         quickest_ultimate_fv_solver solver_nu(*advection_model, viscosity_wrapper);
         solver_nu.step(dt, values_in_time_model[1], values_in_time_model[1]);
-        auto nu_profile = viscosity_wrapper.current().vars;
         
-        pipe_model_PQ_cell_parties_t pipeModel(pipe, rho_profile, nu_profile, Q_profile[0], euler_direction);
-
+        pipe_model_PQ_cell_parties_t pipeModel(pipe, density_wrapper.current().vars, viscosity_wrapper.current().vars, Q_profile[0], euler_direction);
+        // Получаем новый профиль давлений
         solve_euler<1>(pipeModel, euler_direction, values_in_time_model[2], &p_profile);
-
+        // Получаем дифференциальный профиль давлений
         std::transform(initial_p_profile.begin(), initial_p_profile.end(), p_profile.begin(), diff_p_profile.begin(),
             [](double initial, double current) {return initial - current;  });
 
         buffer.advance(+1);
-    } while (t < std::time(nullptr) + duration - dt);
+    } while (t < std::time(nullptr) + settings.duration - dt);
 }
