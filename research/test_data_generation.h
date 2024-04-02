@@ -47,11 +47,11 @@ struct timeseries_generator_settings {
 };
 
 /// @brief Класс для генерации синтетических временных рядов
-class syntetic_time_series_generator {
+class synthetic_time_series_generator {
 public:
     /// @brief Конструктор класса
     /// @param settings Настройки генератора временных рядов
-    syntetic_time_series_generator(const timeseries_generator_settings& settings)
+    synthetic_time_series_generator(const timeseries_generator_settings& settings)
         : settings_(settings),
         gen(rd()) {
         std::uniform_real_distribution<double> timeDis(settings_.sample_time_min, settings_.sample_time_max);
@@ -93,7 +93,7 @@ public:
     }
     /// @brief Получение сгенерированных данных
     /// @return Вектор временных рядов
-    vector<ParamPair> get_data() const {
+    const vector<ParamPair>& get_data() const {
         return data;
     }
 
@@ -120,7 +120,7 @@ TEST(Random, PrepareTimeSeries)
 
 
     };
-    syntetic_time_series_generator data_generator(settings);
+    synthetic_time_series_generator data_generator(settings);
 
     const time_t jump_time_rho = 100000;
     const double jump_value_rho = 870;
@@ -267,11 +267,9 @@ public:
 
 struct task_buffer_t {
     vector<double> pressure_initial;
-    //vector<double> Q_profile;
     ring_buffer_t<density_viscosity_cell_layer> buffer;
     task_buffer_t(size_t point_count)
         : pressure_initial(point_count)
-        //, Q_profile(point_count)
         , buffer(2, point_count)
     {}
 };
@@ -298,15 +296,13 @@ public:
         const quasistatic_task_boundaries_t& initial_conditions)
         : pipe(pipe)
         , buffer(pipe.profile.getPointCount())
-        //, advection_model(this->pipe, buffer.Q_profile)
     {
         size_t n = pipe.profile.getPointCount();
-        //buffer.Q_profile = vector<double>(volumetric_flow, n);
 
         // Инициализация реологии
         auto& current = buffer.buffer.current();
-        current.density = vector<double>(n, initial_conditions.density); // Инициализация начальной плотности
-        current.viscosity = vector<double>(n, initial_conditions.viscosity); // Инициализация начальной вязкости
+        current.density = vector<double>(n-1, initial_conditions.density); // Инициализация начальной плотности
+        current.viscosity = vector<double>(n-1, initial_conditions.viscosity); // Инициализация начальной вязкости
 
         // Начальный гидравлический расчет
         int euler_direction = +1;
@@ -314,9 +310,6 @@ public:
         solve_euler<1>(pipeModel, euler_direction, initial_conditions.pressure_in, &current.pressure);
 
         buffer.pressure_initial = current.pressure; // Получаем изначальный профиль давлений
-
-        buffer.buffer.advance(+1);
-
     }
 
 
@@ -324,7 +317,6 @@ public:
     double get_time_step_assuming_max_speed(double v_max) const {
         const auto& x = pipe.profile.coordinates;
         double dx = x[1] - x[0]; // Шаг сетки
-        double v_max = 1; // Предполагаем скорость для Куранта = 1, скорость, больше чем во временных рядах и в профиле
         double dt = abs(dx / v_max); // Постоянный шаг по времени для Куранта = 1
         return dt;
     }
@@ -345,6 +337,7 @@ public:
 
         
         vector<double>Q_profile(n, boundaries.volumetric_flow); // задаем по трубе новый расход из временного ряда
+
         PipeQAdvection advection_model(pipe, Q_profile);
         // Шаг по плотности
         quickest_ultimate_fv_solver solver_rho(advection_model, density_wrapper);
@@ -360,6 +353,7 @@ public:
         std::transform(buffer.pressure_initial.begin(), buffer.pressure_initial.end(), p_profile.begin(), 
             current.pressure_delta.begin(),
             [](double initial, double current) {return initial - current;  });
+
     }
     void advance()
     {
@@ -373,17 +367,18 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
     // Объявляем структуру с исходными данными и настроечными параметрами
     timeseries_generator_settings settings;
     // Генерируем данные
-    syntetic_time_series_generator data_time_series(settings); 
+    synthetic_time_series_generator data_time_series(settings); 
     // Получаем данные
     const auto data = data_time_series.get_data(); 
     // Помещаем временные ряды в вектор
     vector_timeseries_t params(data);
 
-
     task_buffer_t buffer(pipe.profile.getPointCount());
     
     quasistatic_task_boundaries_t initial_boundaries =  { 0.2, 6e6, 850, 15e-6 };
     quasistatic_task_t task(pipe, initial_boundaries);
+
+    task.advance();
 
     double v_max = 1; // Предполагаем скорость для Куранта = 1, скорость, больше чем во временных рядах и в профиле
     time_t dt = task.get_time_step_assuming_max_speed(v_max);
