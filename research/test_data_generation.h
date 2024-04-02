@@ -39,10 +39,10 @@ struct timeseries_generator_settings {
     /// @brief "p_out" Давление на выходе (опционально), (Па)
     /// @brief "Q" Расход по всей трубе (опционально), (м^3/с)
     vector<pair<string, double>> timeseries_initial_values = {
+        { "Q", 0.2 },
+        { "p_in", 6e6},
         { "rho_in", 860 },
         { "visc_in", 15e-6},
-        { "p_in", 6e6},
-        { "Q", 0.2 },
     };
 };
 
@@ -113,10 +113,12 @@ TEST(Random, PrepareTimeSeries)
     settings.value_relative_decrement = 0.005; // Задаю относительное минимальное отклонение значения параметров (опционально, по умолчанию 0.0002)
     settings.value_relative_increment = 0.005; // Задаю относительное максимальное отклонение значения параметров (опционально, по умолчанию 0.0002)
     settings.timeseries_initial_values = {
+        { "Q", 0.3 },
+        { "p_in", 5e6},
         { "rho_in", 850 },
         { "visc_in", 17e-6},
-        { "p_in", 5e6},
-        { "Q", 0.3 },
+
+
     };
     syntetic_time_series_generator data_generator(settings);
 
@@ -142,9 +144,7 @@ TEST(Random, PrepareTimeSeries)
 #pragma once
 
 /// @brief Тесты для солвера quickest_ultimate_fv_solver
-class quick_with_quasi_stationary_model : public ::testing::Test {
-protected:
-
+class QuickWithQuasiStationaryModel : public ::testing::Test {
 protected:
     /// @brief Параметры трубы
     pipe_properties_t pipe;
@@ -153,7 +153,6 @@ protected:
     /// @brief Модель адвекции
     std::unique_ptr<PipeQAdvection> advection_model;
 protected:
-
     /// @brief Подготовка к расчету для семейства тестов
     virtual void SetUp() override {
         // Упрощенное задание трубы - 200км, с шагом разбиения для расчтной сетки 100 м, диаметром 514мм
@@ -174,6 +173,10 @@ struct density_viscosity_cell_layer {
     std::vector<double> density;
     /// @brief Профиль вязкости
     std::vector<double> viscosity;
+    /// @brief Профиль давления
+    std::vector<double> pressure;
+    /// @brief Дифференциальный профиль давления
+    std::vector<double> pressure_delta;
     /// @brief Профиль вспомогательных расчетов для метода конечных объемов (и для вязкости, и для плотности)
     quickest_ultimate_fv_solver_traits<1>::specific_layer specific;
     /// @brief Инициализация профилей
@@ -182,6 +185,8 @@ struct density_viscosity_cell_layer {
         : density(point_count - 1)
         , viscosity(point_count - 1)
         , specific(point_count)
+        , pressure(point_count)
+        , pressure_delta(point_count)
     {}
 
     // @brief Подготовка плотности для расчета методом конечных объемов 
@@ -215,7 +220,7 @@ public:
     /// @param oil Ссылка на сущность нефти
     /// @param flow Объемный расход
     /// @param solver_direction Направление расчета по Эйлеру, должно обязательно совпадать с параметром солвера Эйлера
-    pipe_model_PQ_cell_parties_t(pipe_properties_t& pipe, vector<double>& rho_profile, vector<double>& nu_profile, double flow,
+    pipe_model_PQ_cell_parties_t(const pipe_properties_t& pipe, const vector<double>& rho_profile, const vector<double>& nu_profile, double flow,
         int solver_direction)
         : pipe(pipe)
         , rho_profile(rho_profile)
@@ -259,7 +264,111 @@ public:
     }
 };
 
-TEST_F(quick_with_quasi_stationary_model, WorkingWithTimeSeries)
+
+struct task_buffer_t {
+    vector<double> pressure_initial;
+    //vector<double> Q_profile;
+    ring_buffer_t<density_viscosity_cell_layer> buffer;
+    task_buffer_t(size_t point_count)
+        : pressure_initial(point_count)
+        //, Q_profile(point_count)
+        , buffer(2, point_count)
+    {}
+};
+
+struct quasistatic_task_boundaries_t {
+    double volumetric_flow;
+    double pressure_in;
+    double density;
+    double viscosity;
+
+    static quasistatic_task_boundaries_t default_values() {
+        quasistatic_task_boundaries_t result;
+
+        return result;
+    }
+};
+
+class quasistatic_task_t {
+    pipe_properties_t pipe;
+    task_buffer_t buffer;
+    
+public:
+    quasistatic_task_t(const pipe_properties_t& pipe, 
+        const quasistatic_task_boundaries_t& initial_conditions)
+        : pipe(pipe)
+        , buffer(pipe.profile.getPointCount())
+        //, advection_model(this->pipe, buffer.Q_profile)
+    {
+        size_t n = pipe.profile.getPointCount();
+        //buffer.Q_profile = vector<double>(volumetric_flow, n);
+
+        // Инициализация реологии
+        auto& current = buffer.buffer.current();
+        current.density = vector<double>(n, initial_conditions.density); // Инициализация начальной плотности
+        current.viscosity = vector<double>(n, initial_conditions.viscosity); // Инициализация начальной вязкости
+
+        // Начальный гидравлический расчет
+        int euler_direction = +1;
+        pipe_model_PQ_cell_parties_t pipeModel(pipe, current.density, current.viscosity, initial_conditions.volumetric_flow, euler_direction);
+        solve_euler<1>(pipeModel, euler_direction, initial_conditions.pressure_in, &current.pressure);
+
+        buffer.pressure_initial = current.pressure; // Получаем изначальный профиль давлений
+
+        buffer.buffer.advance(+1);
+
+    }
+
+
+public:
+    double get_time_step_assuming_max_speed(double v_max) const {
+        const auto& x = pipe.profile.coordinates;
+        double dx = x[1] - x[0]; // Шаг сетки
+        double v_max = 1; // Предполагаем скорость для Куранта = 1, скорость, больше чем во временных рядах и в профиле
+        double dt = abs(dx / v_max); // Постоянный шаг по времени для Куранта = 1
+        return dt;
+    }
+
+    void step(double dt, const quasistatic_task_boundaries_t& boundaries) {
+        size_t n = pipe.profile.getPointCount();
+        auto& current = buffer.buffer.current();
+
+        vector<double>& p_profile = current.pressure;
+
+        auto density_wrapper = buffer.buffer.get_buffer_wrapper(
+            &density_viscosity_cell_layer::get_density_quick_wrapper);
+
+        auto viscosity_wrapper = buffer.buffer.get_buffer_wrapper(
+            &density_viscosity_cell_layer::get_viscosity_quick_wrapper);
+
+        int euler_direction = +1; // Задаем направление для Эйлера
+
+        
+        vector<double>Q_profile(n, boundaries.volumetric_flow); // задаем по трубе новый расход из временного ряда
+        PipeQAdvection advection_model(pipe, Q_profile);
+        // Шаг по плотности
+        quickest_ultimate_fv_solver solver_rho(advection_model, density_wrapper);
+        solver_rho.step(dt, boundaries.density, boundaries.density);
+        // Шаг по вязкости
+        quickest_ultimate_fv_solver solver_nu(advection_model, viscosity_wrapper);
+        solver_nu.step(dt, boundaries.viscosity, boundaries.viscosity);
+
+        pipe_model_PQ_cell_parties_t pipeModel(pipe, density_wrapper.current().vars, viscosity_wrapper.current().vars, Q_profile[0], euler_direction);
+        // Получаем новый профиль давлений
+        solve_euler<1>(pipeModel, euler_direction, boundaries.pressure_in, &p_profile);
+        // Получаем дифференциальный профиль давлений
+        std::transform(buffer.pressure_initial.begin(), buffer.pressure_initial.end(), p_profile.begin(), 
+            current.pressure_delta.begin(),
+            [](double initial, double current) {return initial - current;  });
+    }
+    void advance()
+    {
+        buffer.buffer.advance(+1);
+    }
+
+};
+
+TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
 {
     // Объявляем структуру с исходными данными и настроечными параметрами
     timeseries_generator_settings settings;
@@ -270,63 +379,29 @@ TEST_F(quick_with_quasi_stationary_model, WorkingWithTimeSeries)
     // Помещаем временные ряды в вектор
     vector_timeseries_t params(data);
 
-    const auto& x = advection_model->get_grid();
-    double dx = x[1] - x[0]; // Шаг сетки
 
-    ring_buffer_t<density_viscosity_cell_layer> buffer(2, pipe.profile.getPointCount());
-
-    buffer[0].density = vector<double>(buffer[0].density.size(), 850); // Инициализация начальной плотности
-    buffer[0].viscosity = vector<double>(buffer[0].viscosity.size(), 1e-5); // Инициализация начальной вязкости
-    double p_initial = 6e6; // Давление на входе изначальное
-    buffer.advance(+1);
+    task_buffer_t buffer(pipe.profile.getPointCount());
+    
+    quasistatic_task_boundaries_t initial_boundaries =  { 0.2, 6e6, 850, 15e-6 };
+    quasistatic_task_t task(pipe, initial_boundaries);
 
     double v_max = 1; // Предполагаем скорость для Куранта = 1, скорость, больше чем во временных рядах и в профиле
-    time_t dt = abs(dx/v_max); // Постоянный шаг по времени для Куранта = 1
-
+    time_t dt = task.get_time_step_assuming_max_speed(v_max);
     time_t t = std::time(nullptr); // Момент времени начала моделирования
-
-    vector<double> initial_p_profile; // Изначальный профиль давлений
-    vector<double> diff_p_profile = vector<double>(pipe.profile.getPointCount(), 0); // Дифференциальный профиль давлений
 
     do
     {
-        vector<double> p_profile(pipe.profile.getPointCount()); // Профиль давлений
-
-        auto density_wrapper = buffer.get_buffer_wrapper(
-            &density_viscosity_cell_layer::get_density_quick_wrapper);
-
-        auto viscosity_wrapper = buffer.get_buffer_wrapper(
-            &density_viscosity_cell_layer::get_viscosity_quick_wrapper);
-
-        int euler_direction = +1; // Задаем направление для Эйлера
-        
-        if (t == std::time(nullptr))
-        {
-            pipe_model_PQ_cell_parties_t pipeModel(pipe, density_wrapper.previous().vars, viscosity_wrapper.previous().vars, Q_profile[0], euler_direction);
-            solve_euler<1>(pipeModel, euler_direction, p_initial, &p_profile);
-            initial_p_profile = p_profile; // Получаем изначальный профиль давлений
-        }
         t += dt;
-        
         // Интерополируем значения параметров в заданный момент времени
         vector<double> values_in_time_model = params(t);
 
-        Q_profile = vector<double>(pipe.profile.getPointCount(), values_in_time_model[3]); // задаем по трубе новый расход из временного ряда
-        advection_model = std::make_unique<PipeQAdvection>(pipe, Q_profile);
-        // Шаг по плотности
-        quickest_ultimate_fv_solver solver_rho(*advection_model, density_wrapper);
-        solver_rho.step(dt, values_in_time_model[0], values_in_time_model[0]);
-        // Шаг по вязкости
-        quickest_ultimate_fv_solver solver_nu(*advection_model, viscosity_wrapper);
-        solver_nu.step(dt, values_in_time_model[1], values_in_time_model[1]);
-        
-        pipe_model_PQ_cell_parties_t pipeModel(pipe, density_wrapper.current().vars, viscosity_wrapper.current().vars, Q_profile[0], euler_direction);
-        // Получаем новый профиль давлений
-        solve_euler<1>(pipeModel, euler_direction, values_in_time_model[2], &p_profile);
-        // Получаем дифференциальный профиль давлений
-        std::transform(initial_p_profile.begin(), initial_p_profile.end(), p_profile.begin(), diff_p_profile.begin(),
-            [](double initial, double current) {return initial - current;  });
+        quasistatic_task_boundaries_t boundaries;
+        boundaries.volumetric_flow = values_in_time_model[0];
+        boundaries.pressure_in = values_in_time_model[1];
+        boundaries.density = values_in_time_model[2];
+        boundaries.viscosity = values_in_time_model[3];
 
-        buffer.advance(+1);
+        task.step(dt, boundaries);
+        task.advance();
     } while (t < std::time(nullptr) + settings.duration - dt);
 }
