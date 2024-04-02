@@ -28,8 +28,8 @@ using ParamPair = pair<TimeVector, ParamVector>;
 /// @brief Исходны данные и настроечные параметры
 struct timeseries_generator_settings {
     std::time_t duration{ 300000 }; // Время моделирования, с
-    std::time_t sample_time_min{200}; // Минимальное значение размаха шага, с
-    std::time_t sample_time_max{400}; // Максимальное значение размаха шага, с
+    std::time_t sample_time_min{ 200 }; // Минимальное значение размаха шага, с
+    std::time_t sample_time_max{ 400 }; // Максимальное значение размаха шага, с
     double value_relative_decrement{ 0.0002 }; // Относительное минимальное отклонение значения параметров, доли
     double value_relative_increment{ 0.0002 }; // Относительное максимальное отклонение значения параметров, доли
     /// @brief Исходные данные, обязательно должны присутствовать два опциональных параметра
@@ -130,7 +130,7 @@ TEST(Random, PrepareTimeSeries)
     const double jump_value_Q = 0.1;
     data_generator.apply_jump(jump_time_Q, jump_value_Q, "Q");
 
-    const auto data = data_generator.get_data();
+    const auto& data = data_generator.get_data();
 
     vector_timeseries_t params(data);
 
@@ -290,9 +290,9 @@ struct quasistatic_task_boundaries_t {
 class quasistatic_task_t {
     pipe_properties_t pipe;
     task_buffer_t buffer;
-    
+
 public:
-    quasistatic_task_t(const pipe_properties_t& pipe, 
+    quasistatic_task_t(const pipe_properties_t& pipe,
         const quasistatic_task_boundaries_t& initial_conditions)
         : pipe(pipe)
         , buffer(pipe.profile.getPointCount())
@@ -301,8 +301,8 @@ public:
 
         // Инициализация реологии
         auto& current = buffer.buffer.current();
-        current.density = vector<double>(n-1, initial_conditions.density); // Инициализация начальной плотности
-        current.viscosity = vector<double>(n-1, initial_conditions.viscosity); // Инициализация начальной вязкости
+        current.density = vector<double>(n - 1, initial_conditions.density); // Инициализация начальной плотности
+        current.viscosity = vector<double>(n - 1, initial_conditions.viscosity); // Инициализация начальной вязкости
 
         // Начальный гидравлический расчет
         int euler_direction = +1;
@@ -335,7 +335,7 @@ public:
 
         int euler_direction = +1; // Задаем направление для Эйлера
 
-        
+
         vector<double>Q_profile(n, boundaries.volumetric_flow); // задаем по трубе новый расход из временного ряда
 
         PipeQAdvection advection_model(pipe, Q_profile);
@@ -350,7 +350,7 @@ public:
         // Получаем новый профиль давлений
         solve_euler<1>(pipeModel, euler_direction, boundaries.pressure_in, &p_profile);
         // Получаем дифференциальный профиль давлений
-        std::transform(buffer.pressure_initial.begin(), buffer.pressure_initial.end(), p_profile.begin(), 
+        std::transform(buffer.pressure_initial.begin(), buffer.pressure_initial.end(), p_profile.begin(),
             current.pressure_delta.begin(),
             [](double initial, double current) {return initial - current;  });
 
@@ -360,6 +360,11 @@ public:
         buffer.buffer.advance(+1);
     }
 
+    auto& get_buffer()
+    {
+        return buffer.buffer;
+    }
+
 };
 
 TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
@@ -367,15 +372,15 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
     // Объявляем структуру с исходными данными и настроечными параметрами
     timeseries_generator_settings settings;
     // Генерируем данные
-    synthetic_time_series_generator data_time_series(settings); 
+    synthetic_time_series_generator data_time_series(settings);
     // Получаем данные
-    const auto data = data_time_series.get_data(); 
+    const auto& data = data_time_series.get_data();
     // Помещаем временные ряды в вектор
     vector_timeseries_t params(data);
 
     task_buffer_t buffer(pipe.profile.getPointCount());
-    
-    quasistatic_task_boundaries_t initial_boundaries =  { 0.2, 6e6, 850, 15e-6 };
+
+    quasistatic_task_boundaries_t initial_boundaries = { 0.2, 6e6, 850, 15e-6 };
     quasistatic_task_t task(pipe, initial_boundaries);
 
     task.advance();
@@ -398,5 +403,7 @@ TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
 
         task.step(dt, boundaries);
         task.advance();
+        auto& rho_profile_1 = task.get_buffer().current().density;
+        auto& rho_profile_2 = task.get_buffer().previous().density;
     } while (t < std::time(nullptr) + settings.duration - dt);
 }
