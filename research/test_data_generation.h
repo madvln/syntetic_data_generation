@@ -1,4 +1,6 @@
-﻿#include <iostream>
+﻿#pragma once
+
+#include <iostream>
 #include <vector>
 #include <string>
 #include <random>
@@ -27,11 +29,16 @@ using ParamPair = pair<TimeVector, ParamVector>;
 
 /// @brief Исходны данные и настроечные параметры
 struct timeseries_generator_settings {
-    std::time_t duration{ 300000 }; // Время моделирования, с
-    std::time_t sample_time_min{ 200 }; // Минимальное значение размаха шага, с
-    std::time_t sample_time_max{ 400 }; // Максимальное значение размаха шага, с
-    double value_relative_decrement{ 0.0002 }; // Относительное минимальное отклонение значения параметров, доли
-    double value_relative_increment{ 0.0002 }; // Относительное максимальное отклонение значения параметров, доли
+    /// @brief Время моделирования, с
+    std::time_t duration; 
+    /// @brief Минимальное значение размаха шага, с
+    std::time_t sample_time_min;
+    /// @brief Максимальное значение размаха шага, с
+    std::time_t sample_time_max;
+    /// @brief Относительное минимальное отклонение значения параметров, доли
+    double value_relative_decrement;
+    /// @brief Относительное максимальное отклонение значения параметров, доли
+    double value_relative_increment;
     /// @brief Исходные данные, обязательно должны присутствовать два опциональных параметра
     /// @brief "rho_in" Плотность жидкости, (кг/м3)
     /// @brief "visc_in" Кинематическая вязкость, (м2/с)
@@ -44,6 +51,17 @@ struct timeseries_generator_settings {
         { "rho_in", 860 },
         { "visc_in", 15e-6},
     };
+    /// @brief Настроечные параметры по умолчанию 
+    static timeseries_generator_settings default_values() {
+        timeseries_generator_settings result;
+        result.duration = 300000;
+        result.sample_time_min = 200;
+        result.sample_time_max = 400;
+        result.value_relative_decrement = 0.0002;
+        result.value_relative_increment = 0.0002;
+        return result;
+    }
+
 };
 
 /// @brief Класс для генерации синтетических временных рядов
@@ -98,10 +116,14 @@ public:
     }
 
 private:
-    timeseries_generator_settings settings_; // Настройки генератора
-    vector<ParamPair> data;; // Данные временных рядов
-    std::random_device rd; // Генератор случайных чисел
-    std::mt19937 gen; // Генератор псевдослучайных чисел
+    /// @brief Настройки генератора
+    timeseries_generator_settings settings_; 
+    /// @brief Данные временных рядов
+    vector<ParamPair> data;
+    /// @brief Генератор случайных чисел
+    std::random_device rd;
+    /// @brief Генератор псевдослучайных чисел
+    std::mt19937 gen;
 };
 
 TEST(Random, PrepareTimeSeries)
@@ -140,8 +162,6 @@ TEST(Random, PrepareTimeSeries)
     // Интерополируем значения параметров в заданный момент времени
     vector<double> values_in_test_time = params(test_time);
 }
-
-#pragma once
 
 /// @brief Тесты для солвера quickest_ultimate_fv_solver
 class QuickWithQuasiStationaryModel : public ::testing::Test {
@@ -282,7 +302,10 @@ struct quasistatic_task_boundaries_t {
 
     static quasistatic_task_boundaries_t default_values() {
         quasistatic_task_boundaries_t result;
-
+        result.volumetric_flow = 0.2;
+        result.pressure_in = 6e6;
+        result.density = 850;
+        result.viscosity = 15e-6;
         return result;
     }
 };
@@ -370,7 +393,7 @@ public:
 TEST_F(QuickWithQuasiStationaryModel, WorkingWithTimeSeries)
 {
     // Объявляем структуру с исходными данными и настроечными параметрами
-    timeseries_generator_settings settings;
+    timeseries_generator_settings settings = timeseries_generator_settings::default_values();
     // Генерируем данные
     synthetic_time_series_generator data_time_series(settings);
     // Получаем данные
